@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fabric to Thread Colour Matcher</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: url('fabric-bg.jpg') no-repeat center center fixed;
+      background-size: cover;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      height: 100vh;
+      color: #222;
+    }
+
+    h1 {
+      font-size: 42px;
+      font-weight: 700;
+      margin-top: 80px;
+      margin-bottom: 40px;
+      text-align: center;
+      background-color: rgba(255, 255, 255, 0.75);
+      padding: 20px 40px;
+      border-radius: 15px;
+      box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+    }
+
+    .upload-box {
+      background-color: rgba(255, 255, 255, 0.9);
+      border-radius: 15px;
+      padding: 30px;
+      width: 350px;
+      text-align: center;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.25);
+      margin-bottom: 40px;
+    }
+
+    input[type="file"] {
+      display: block;
+      margin: 15px auto;
+      font-size: 16px;
+    }
+
+    button {
+      padding: 12px 25px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: 0.3s;
+      margin-top: 10px;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    #cameraContainer {
+      margin-top: 15px;
+      display: none;
+    }
+
+    #video {
+      border-radius: 10px;
+      border: 2px solid #333;
+    }
+
+    #result {
+      background-color: rgba(255, 255, 255, 0.95);
+      border-radius: 20px;
+      padding: 30px;
+      font-size: 22px;
+      text-align: center;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.25);
+      width: 60%;
+      max-width: 500px;
+      display: none;
+    }
+
+    .colorBoxContainer {
+      display: flex;
+      justify-content: center;
+      gap: 50px;
+      margin-top: 25px;
+    }
+
+    .colorBox {
+      width: 120px;
+      height: 120px;
+      border-radius: 15px;
+      border: 3px solid #000;
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 600;
+      color: #111;
+      text-align: center;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .colorBox img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 12px;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 0;
+    }
+
+    .colorBox span {
+      z-index: 1;
+      position: relative;
+      color: #fff;
+      text-shadow: 1px 1px 2px #000;
+    }
+
+    .loading {
+      font-size: 24px;
+      font-weight: 500;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎨 Fabric to Thread Colour Matcher 🎨</h1>
+
+  <div class="upload-box">
+    <p><b>Select your fabric image:</b></p>
+    <input type="file" id="fabricInput" accept="image/*">
+    <button onclick="uploadFabric()">Match Thread Colour</button>
+
+    <hr style="margin:20px 0;">
+    <p><b>Or capture fabric using camera:</b></p>
+    <button onclick="startCamera()">Open Camera</button>
+
+    <div id="cameraContainer">
+      <video id="video" width="300" height="225" autoplay></video><br>
+      <button onclick="capturePhoto()">Capture Photo</button>
+      <canvas id="canvas" style="display:none;"></canvas>
+    </div>
+  </div>
+
+  <div id="result"></div>
+
+  <script>
+    // --- File Upload Function ---
+    async function uploadFabric() {
+      const input = document.getElementById('fabricInput');
+      const file = input.files[0];
+      if (!file) { alert("Please choose an image first!"); return; }
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+
+      reader.onload = async function(e) {
+        const fabricDataUrl = e.target.result;
+        await sendToBackend(file, fabricDataUrl);
+      };
+    }
+
+    // --- Camera Functions ---
+    let videoStream;
+
+    function startCamera() {
+      const cameraContainer = document.getElementById('cameraContainer');
+      cameraContainer.style.display = 'block';
+
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+          videoStream = stream;
+          const video = document.getElementById('video');
+          video.srcObject = stream;
+          video.play();
+        })
+        .catch(err => alert("Camera not accessible: " + err));
+    }
+
+    function capturePhoto() {
+      const video = document.getElementById('video');
+      const canvas = document.getElementById('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      videoStream.getTracks().forEach(track => track.stop());
+
+      canvas.toBlob(async function(blob) {
+        const file = new File([blob], "fabric_capture.jpg", { type: "image/jpeg" });
+        await sendToBackend(file, URL.createObjectURL(file));
+      }, 'image/jpeg');
+    }
+
+    // --- Send Image to Backend ---
+    async function sendToBackend(file, displayUrl) {
+      const formData = new FormData();
+      formData.append('image', file);
+
+      const resultDiv = document.getElementById('result');
+      resultDiv.style.display = "block";
+      resultDiv.innerHTML = `<div class='loading'>Processing image... ⏳</div>`;
+
+      try {
+        const response = await fetch('http://127.0.0.1:5000/match-color', { method: 'POST', body: formData });
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+
+        resultDiv.innerHTML = `
+          <b>Closest Thread Match:</b> <span style="color:#007bff;">${data.name}</span><br><br>
+          <div class="colorBoxContainer">
+            <div class="colorBox">
+              <img src="${displayUrl}" alt="Fabric">
+              <span>Fabric</span>
+            </div>
+            <div class="colorBox" style="background-color: rgb(${data.r}, ${data.g}, ${data.b});">
+              <span>${data.name}</span>
+            </div>
+          </div>
+        `;
+      } catch (error) {
+        resultDiv.innerHTML = `<b style="color:red;">⚠️ Failed to match color.</b>`;
+        console.error(error);
+      }
+    }
+  </script>
+</body>
+</html>
